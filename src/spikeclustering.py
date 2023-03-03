@@ -1,8 +1,9 @@
 import pandas as pd
+import numpy as np
 
 spikes_per_cluster = 3
 values_per_spike = 30
-min_spike_size = values_per_spike/3
+min_spike_size = values_per_spike / 3
 
 
 def count_spikes(data_frame: pd.DataFrame):
@@ -18,11 +19,11 @@ def count_spikes(data_frame: pd.DataFrame):
 
         # discarding everything with a diff to low
         if (
-                abs(data_frame["ADC_diff"][idx]) >= 3
-                or abs(data_frame["ADC_diff"][idx - 1]) >= 3
-                or abs(data_frame["ADC_diff"][idx - 2]) >= 3
-                or abs(data_frame["ADC_diff"][idx + 1]) >= 3
-                or abs(data_frame["ADC_diff"][idx + 2]) >= 3
+            abs(data_frame["ADC_diff"][idx]) >= 3
+            or abs(data_frame["ADC_diff"][idx - 1]) >= 3
+            or abs(data_frame["ADC_diff"][idx - 2]) >= 3
+            or abs(data_frame["ADC_diff"][idx + 1]) >= 3
+            or abs(data_frame["ADC_diff"][idx + 2]) >= 3
         ):
             # start of new spike -> increase Spike counter
             if not is_in_spike:
@@ -70,7 +71,7 @@ def remove_short_spikes(spike_data):
     return spike_data
 
 
-def spikes_to_data_frame(old_data_frame, spike_data):
+def spikes_to_np_mat(old_data_frame, spike_data):
     """
     Every row in the Dataset gets {SpikesPerCluster} clusters.
     So every row becomes {SpikesPerCluster * timesPerSpike} elements long.
@@ -79,11 +80,19 @@ def spikes_to_data_frame(old_data_frame, spike_data):
     If we have gone through all positions in the row but the spike is not over, we skip the rest.
     If the spike is over and there is still room in the row, fill it upp with 0s.
     """
-    # setting up the dict
-    new_data_frame_as_dict = {}
-    for i in range(0, spikes_per_cluster * values_per_spike):
-        new_data_frame_as_dict.update({f"ADC_diff{i}": []})
-    #    newDataFrame.update({f'ADC_diff{i}': [], f'time{i}': []})
+    spike_counter = len(spike_data)
+    highest_val = 0
+    while highest_val == 0:
+        spike_counter -= 1
+        highest_val = max(highest_val, spike_data[spike_counter])
+
+    np_mat = np.zeros(
+        shape=(
+            int(np.ceil(highest_val / spikes_per_cluster)),
+            spikes_per_cluster * values_per_spike,
+        ),
+        dtype=np.int16,
+    )
 
     # keep track of the position in the row
     data_counter = -1
@@ -95,9 +104,6 @@ def spikes_to_data_frame(old_data_frame, spike_data):
             continue
         if restart_counter_on1_index and spike_data[idx] % spikes_per_cluster == 1:
             counter += 1
-            for idx2 in range(data_counter + 1, spikes_per_cluster * values_per_spike):
-                new_data_frame_as_dict[f"ADC_diff{idx2}"].append(0)
-            #    newDataFrame[f'time{idx2}'].append(0)
 
             data_counter = 0
             restart_counter_on1_index = False
@@ -107,19 +113,11 @@ def spikes_to_data_frame(old_data_frame, spike_data):
                 restart_counter_on1_index = True
             if data_counter >= spikes_per_cluster * values_per_spike:
                 continue
-        new_data_frame_as_dict[f"ADC_diff{data_counter}"].append(
-            old_data_frame["ADC_diff"][idx]
-        )
-    #    newDataFrame[f'time{dataCounter}'].append(oldDataFrame['time'][idx])
-
-    # fill rest of row with 0
-    for idx in range(data_counter + 1, spikes_per_cluster * values_per_spike):
-        new_data_frame_as_dict[f"ADC_diff{idx}"].append(0)
-    #    newDataFrame[f'time{idx}'].append(0)
-    return pd.DataFrame(new_data_frame_as_dict)
+        np_mat[counter][data_counter] = old_data_frame["ADC_diff"][idx]
+    return np_mat
 
 
-def fill_up_short_rows(data_frame):
+def fill_up_short_rows(np_mat):
     """
     In every row we count the amount of trailing zeros.
     Otherwise, we copy some values in between to make up for the missing values.
@@ -127,54 +125,77 @@ def fill_up_short_rows(data_frame):
     The copying is done by first putting everything in a separate list (needed because we insert new values in between)
     and overriding the dataframe with the list.
     """
-    for idx in data_frame.index:
+    for idx in range(len(np_mat)):
         zero_counter = 0
         idx_list = []
-        for idx2 in reversed(range(0, spikes_per_cluster * values_per_spike)):
-            if data_frame[f"ADC_diff{idx2}"][idx] != 0:
+        for idx2 in reversed(range(spikes_per_cluster * values_per_spike)):
+            if np_mat[idx][idx2] != 0:
                 break
             zero_counter += 1
 
         if zero_counter == 0:
             continue
 
-        if zero_counter > spikes_per_cluster * values_per_spike - spikes_per_cluster * min_spike_size:
+        if (
+            zero_counter
+            > spikes_per_cluster * values_per_spike
+            - spikes_per_cluster * min_spike_size
+        ):
             print("ERROR something wrong")
             continue
 
-        copy_each_n_elements = zero_counter / (spikes_per_cluster * values_per_spike - zero_counter)
+        copy_each_n_elements = zero_counter / (
+            spikes_per_cluster * values_per_spike - zero_counter
+        )
         total = 0
 
         multiplier = (spikes_per_cluster * values_per_spike - zero_counter) / (
-                spikes_per_cluster * values_per_spike
+            spikes_per_cluster * values_per_spike
         )
 
-        for idx2 in range(0, spikes_per_cluster * values_per_spike - zero_counter):
+        for idx2 in range(spikes_per_cluster * values_per_spike - zero_counter):
             total += copy_each_n_elements
-            idx_list.append(round(data_frame[f"ADC_diff{idx2}"][idx] * multiplier))
+            idx_list.append(round(np_mat[idx][idx2] * multiplier))
             while total > 1:
-                idx_list.append(round((data_frame[f"ADC_diff{idx2}"][idx] + data_frame[f"ADC_diff{idx2 + 1}"][idx])/2
-                                      * multiplier))
+                idx_list.append(
+                    round((np_mat[idx][idx2] + np_mat[idx][idx2 + 1]) / 2 * multiplier)
+                )
                 total -= 1
 
-        for idx2 in range(0, min(len(idx_list), spikes_per_cluster * values_per_spike)):
-            data_frame[f"ADC_diff{idx2}"][idx] = idx_list[idx2]
-
-
-def normed_dataframe_to_list(data_frame
-                             +
-):
-    ret_list = []
-    for i in data_frame.index:
-        for j in range(0, spikes_per_cluster * values_per_spike):
-            ret_list.append(data_frame[f"ADC_diff{j}"][i])
-    return ret_list
+        for idx2 in range(min(len(idx_list), spikes_per_cluster * values_per_spike)):
+            np_mat[idx][idx2] = idx_list[idx2]
 
 
 def normalizing_data(data_frame):
     spike_data = count_spikes(data_frame)
     spike_data = remove_short_spikes(spike_data)
-    res_data_frame = spikes_to_data_frame(data_frame, spike_data)
-    return fill_up_short_rows(res_data_frame)
+    res_data_frame = spikes_to_np_mat(data_frame, spike_data)
+    fill_up_short_rows(res_data_frame)
+    return res_data_frame
 
 
+def hand_picked_algorithm(data_mat, isAsp):
+    wrong_counter = 0
+    for arr in data_mat:
+        if check_for_asp(arr) != isAsp:
+            wrong_counter += 1
+    return wrong_counter
+
+
+def check_for_asp(arr):
+    """
+    :param arr: normed array
+    :return: idea is that asp has one clear spike while gra has multiple
+    """
+    count = 0
+    pause_after_massive_spike = 0
+    for i in range(len(arr) - 1):
+        if pause_after_massive_spike > 0:
+            pause_after_massive_spike -= 1
+            continue
+        if arr[i + 1] - arr[i] < -5:
+            count += 1
+        if arr[i + 1] - arr[i] < -20:
+            pause_after_massive_spike = 20
+
+    return count < spikes_per_cluster * 2
