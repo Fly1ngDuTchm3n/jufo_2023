@@ -2,41 +2,24 @@ import numpy as np
 import matplotlib.pyplot as plt
 from numpy.fft import fft, ifft
 
-CLUSTER_SIZE = 100
 
-
-def pack_in_clusters(diff_list: list):
-    diff_list += [0] * (100 - (len(diff_list) % 100))
-    np_diff_list = np.array(diff_list, dtype=np.int16)
-    np_diff_list = np_diff_list.reshape(round(len(np_diff_list) / 100), 100)
-
-    print(np_diff_list.shape)
-    return 0
-
-
-def plot_fft_result(fft_input):
-    # sampling rate
-    sr = len(fft_input)
+def plot_fft_result(fft_res, len_orig_input):
     # sampling interval
-    ts = 1.0 / sr
+    ts = 1.0 / len_orig_input
     t = np.arange(0, 1, ts)
 
-    fft_res = fft(fft_input)
-    N = len(fft_res)
-    n = np.arange(N)
-    T = N / sr
+    fft_len = len(fft_res)
+    n = np.arange(fft_len)
+    T = fft_len / len_orig_input
     freq = n / T
 
-    greater_than = np.abs(fft_res) > N / 5
-    print(sum(greater_than))
     plt.figure(figsize=(12, 6))
     plt.subplot(121)
 
     plt.stem(freq, np.abs(fft_res), "b", markerfmt=" ", basefmt="-b")
     plt.xlabel("Freq (Hz)")
     plt.ylabel("FFT Amplitude |X(freq)|")
-    plt.xlim(0, np.floor(N / 2))
-    plt.ylim(0, N)
+    plt.xlim(0, np.floor(fft_len / 2))
 
     plt.subplot(122)
     plt.plot(t, ifft(fft_res), "r")
@@ -46,17 +29,23 @@ def plot_fft_result(fft_input):
     plt.show()
 
 
-def fft_check_for_asp(fft_input, is_asp):
-    fft_res = fft(fft_input)
+def hand_picked_fft_algorithm(fft_mat, isAsp):
+    wrong_counter = 0
+    for arr in fft_mat:
+        if fft_check_for_asp(arr) != isAsp:
+            wrong_counter += 1
+    return wrong_counter
+
+
+def fft_check_for_asp(fft_res):
     len_fft = len(fft_res)
 
-    greater_than = np.abs(fft_res) > len_fft
-    if not sum(greater_than) < len_fft/2 == is_asp:
-        if is_asp:
-            print('asp mistake')
-        else:
-            print('gra mistake')
-        plot_fft_result(fft_input)
-        return False
-    else:
-        return True
+    greater_than = np.abs(fft_res[int(len_fft / 3) : int(len_fft / 2) :]) > len_fft / 2
+    return sum(greater_than) < len_fft / 25
+
+
+def replace_with_fft(input_mat):
+    res_mat = np.empty_like(input_mat, dtype=np.float16)
+    for i, arr in enumerate(input_mat):
+        res_mat[i] = np.abs(fft(arr))
+    return res_mat
