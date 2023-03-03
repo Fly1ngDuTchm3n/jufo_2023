@@ -73,6 +73,7 @@ def remove_short_spikes(spike_data):
 
 def spikes_to_np_mat(old_data_frame, spike_data):
     """
+    not updatet
     Every row in the Dataset gets {SpikesPerCluster} clusters.
     So every row becomes {SpikesPerCluster * timesPerSpike} elements long.
     If we have a spike (oldAspSpike != 0) we put the data in the next position of the row.
@@ -119,6 +120,7 @@ def spikes_to_np_mat(old_data_frame, spike_data):
 
 def fill_up_short_rows(np_mat):
     """
+    not updatet
     In every row we count the amount of trailing zeros.
     Otherwise, we copy some values in between to make up for the missing values.
     To compensate that the values are higher due to quick speed we multiply everything with a multiplier.
